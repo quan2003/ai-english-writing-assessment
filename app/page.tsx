@@ -4,6 +4,7 @@ import {
   AlertCircle,
   BadgeCheck,
   ClipboardList,
+  Clock,
   FileText,
   History,
   Lightbulb,
@@ -11,11 +12,17 @@ import {
   MessageSquareText,
   RotateCcw,
   Send,
+  AlertTriangle,
   Sparkles,
-  Trash2
+  Trash2,
+  X,
+  Check,
+  Flag,
+  UserCheck,
+  Search
 } from "lucide-react";
-import { FormEvent, useMemo, useRef, useState } from "react";
-import type { GradeResult } from "@/lib/grading-types";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import type { GradeResult, Score, Level, AILikelihood } from "@/lib/grading-types";
 
 type HistoryEntry = {
   id: string;
@@ -24,6 +31,7 @@ type HistoryEntry = {
   essayText: string;
   createdAt: string;
   result: GradeResult;
+  gradingTime: number; // seconds
 };
 
 const emptyResultMessage = "Submit a writing task and student essay to see the rubric result.";
@@ -52,7 +60,30 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [gradingTime, setGradingTime] = useState<number | null>(null);
+  const [liveTimer, setLiveTimer] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef = useRef<number>(0);
   const resultRef = useRef<HTMLElement | null>(null);
+
+  // Live ticking timer while AI is grading
+  useEffect(() => {
+    if (isLoading) {
+      setLiveTimer(0);
+      startTimeRef.current = Date.now();
+      timerRef.current = setInterval(() => {
+        setLiveTimer(Math.floor((Date.now() - startTimeRef.current) / 1000));
+      }, 500);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isLoading]);
 
   const wordCount = useMemo(() => {
     return essayText.trim() ? essayText.trim().split(/\s+/).length : 0;
@@ -62,7 +93,9 @@ export default function Home() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setGradingTime(null);
     setIsLoading(true);
+    const t0 = Date.now();
 
     try {
       const response = await fetch("/api/grade", {
@@ -76,8 +109,10 @@ export default function Home() {
         throw new Error(data.error || "Unable to grade this essay.");
       }
 
+      const elapsed = Math.round((Date.now() - t0) / 100) / 10; // one decimal second
       const gradeResult = data as GradeResult;
       setResult(gradeResult);
+      setGradingTime(elapsed);
       setHistory((items) => [
         {
           id: crypto.randomUUID(),
@@ -85,7 +120,8 @@ export default function Home() {
           task,
           essayText,
           createdAt: new Date().toLocaleString(),
-          result: gradeResult
+          result: gradeResult,
+          gradingTime: elapsed
         },
         ...items
       ]);
@@ -105,6 +141,7 @@ export default function Home() {
     setEssayText("");
     setError("");
     setResult(null);
+    setGradingTime(null);
   }
 
   function restoreEntry(entry: HistoryEntry) {
@@ -112,7 +149,50 @@ export default function Home() {
     setTask(entry.task);
     setEssayText(entry.essayText);
     setResult(entry.result);
+    setGradingTime(entry.gradingTime);
     setError("");
+  }
+
+  function handleAssignZero() {
+    if (!result) return;
+    const updatedResult = {
+      ...result,
+      task_fulfillment: 0 as Score,
+      organization: 0 as Score,
+      vocabulary: 0 as Score,
+      grammar: 0 as Score,
+      total: 0,
+      level: "Weak" as Level,
+      ai_likelihood: "low" as AILikelihood
+    };
+    setResult(updatedResult);
+    setHistory(prev => {
+      const newHistory = [...prev];
+      if (newHistory.length > 0 && newHistory[0].result === result) {
+        newHistory[0] = { ...newHistory[0], result: updatedResult };
+      }
+      return newHistory;
+    });
+  }
+
+  function handleApproveScore() {
+    if (!result) return;
+    const updatedResult = {
+      ...result,
+      ai_likelihood: "low" as AILikelihood
+    };
+    setResult(updatedResult);
+    setHistory(prev => {
+      const newHistory = [...prev];
+      if (newHistory.length > 0 && newHistory[0].result === result) {
+        newHistory[0] = { ...newHistory[0], result: updatedResult };
+      }
+      return newHistory;
+    });
+  }
+
+  function handleFlagForReview() {
+    alert("Bài thi này đã được đánh dấu để xem xét lại sau (Flagged for Review).");
   }
 
   return (
@@ -197,7 +277,7 @@ export default function Home() {
                 ) : (
                   <Send size={18} aria-hidden="true" />
                 )}
-                {isLoading ? "Grading" : "Grade essay"}
+                {isLoading ? `Grading… ${liveTimer}s` : "Grade essay"}
               </button>
               <button
                 className="icon-btn"
@@ -233,13 +313,60 @@ export default function Home() {
               <div className="score-hero">
                 <div>
                   <p className="muted">Suggested total</p>
-                  <div className="score-total">{formatScore(result.total)}</div>
+                  <div className="score-total" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    {formatScore(result.total)}
+                    {result.ai_likelihood === "high" && (
+                      <span style={{ 
+                        fontSize: '0.875rem', 
+                        backgroundColor: '#ef4444', 
+                        color: 'white', 
+                        padding: '4px 8px', 
+                        borderRadius: '9999px',
+                        fontWeight: 'bold',
+                        letterSpacing: '0.5px'
+                      }}>
+                        Suggest 0 pts
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <p className="muted">Confidence</p>
                   <strong className="confidence">{result.confidence}</strong>
                 </div>
+                {gradingTime !== null && (
+                  <div className="grading-time-badge">
+                    <Clock size={14} aria-hidden="true" />
+                    <span>
+                      <span className="grading-time-value">{gradingTime}s</span>
+                      <span className="grading-time-label">AI grading time</span>
+                    </span>
+                  </div>
+                )}
               </div>
+
+              {result.ai_likelihood === "high" && (
+                <div style={{
+                  margin: '0 24px 20px',
+                  padding: '16px',
+                  backgroundColor: '#fee2e2',
+                  border: '1px solid #f87171',
+                  borderRadius: '8px',
+                  color: '#991b1b',
+                  display: 'flex',
+                  gap: '12px',
+                  alignItems: 'flex-start'
+                }}>
+                  <AlertTriangle size={24} style={{ flexShrink: 0, marginTop: '2px' }} />
+                  <div>
+                    <h4 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 'bold' }}>AI Writing Detected!</h4>
+                    <p style={{ margin: 0, fontSize: '0.875rem', lineHeight: '1.5' }}>
+                      This essay shows strong signs of AI generation (overly perfect grammar, formulaic transitions, encyclopedic tone). 
+                      The system has graded it normally below for your reference, but <strong>recommends assigning a score of 0</strong> for this case.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <div className="result-scroll">
                 <div className="criteria-grid">
@@ -305,6 +432,85 @@ export default function Home() {
                     ))}
                   </ul>
                 </section>
+
+                {result.ai_likelihood === "high" && result.ai_detection_signs && result.ai_detection_signs.length > 0 && (
+                  <div style={{ marginTop: '24px' }}>
+                    <div className="list-columns">
+                      <section className="result-section insight-card" style={{ borderLeft: '4px solid #f87171' }}>
+                        <h3>
+                          <Search size={17} aria-hidden="true" />
+                          Detection Signs
+                        </h3>
+                        <ul className="note-list clean-list">
+                          {result.ai_detection_signs.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </section>
+                      {result.ai_detection_feedback && (
+                        <section className="result-section insight-card" style={{ borderLeft: '4px solid #f87171' }}>
+                          <h3>
+                            <MessageSquareText size={17} aria-hidden="true" />
+                            AI Comment
+                          </h3>
+                          <p className="feedback" style={{ margin: 0 }}>{result.ai_detection_feedback}</p>
+                        </section>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <section style={{ 
+                  marginTop: '32px', 
+                  paddingTop: '24px', 
+                  borderTop: '1px solid var(--border-color)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
+                    <UserCheck size={18} />
+                    <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Lecturer Decision (Human-in-the-loop)</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                    <button type="button" onClick={handleAssignZero} style={{
+                      display: 'flex', alignItems: 'center', gap: '8px',
+                      padding: '8px 16px', borderRadius: '6px',
+                      backgroundColor: 'transparent',
+                      border: '1px solid var(--border-color)',
+                      color: 'var(--text-color)',
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                      transition: 'background-color 0.2s'
+                    }}>
+                      <X size={16} /> Assign 0 (Violation)
+                    </button>
+                    <button type="button" onClick={handleApproveScore} style={{
+                      display: 'flex', alignItems: 'center', gap: '8px',
+                      padding: '8px 16px', borderRadius: '6px',
+                      backgroundColor: 'transparent',
+                      border: '1px solid var(--border-color)',
+                      color: 'var(--text-color)',
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                      transition: 'background-color 0.2s'
+                    }}>
+                      <Check size={16} /> Approve Score
+                    </button>
+                    <button type="button" onClick={handleFlagForReview} style={{
+                      display: 'flex', alignItems: 'center', gap: '8px',
+                      padding: '8px 16px', borderRadius: '6px',
+                      backgroundColor: 'transparent',
+                      border: '1px solid var(--border-color)',
+                      color: 'var(--text-color)',
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                      transition: 'background-color 0.2s'
+                    }}>
+                      <Flag size={16} /> Flag for Review
+                    </button>
+                  </div>
+                </section>
               </div>
             </div>
           )}
@@ -346,6 +552,10 @@ export default function Home() {
                       <Sparkles size={14} aria-hidden="true" />
                       {formatScore(entry.result.total)}
                     </span>
+                  </div>
+                  <div className="history-timing">
+                    <Clock size={11} aria-hidden="true" />
+                    AI: {entry.gradingTime}s
                   </div>
                   <div className="history-name">{entry.studentName}</div>
                   <div className="history-task">{entry.task}</div>
