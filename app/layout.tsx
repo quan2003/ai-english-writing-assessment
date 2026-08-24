@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { LanguageProvider } from "@/lib/LanguageContext";
 
 export const metadata: Metadata = {
-  title: "Writing Assessment",
-  description: "University writing assessment assistant for lecturers"
+  title: "AI Writing Assessment Platform",
+  description: "Enterprise commercial multi-tenant AI-assisted writing assessment SaaS for universities"
 };
 
 export default function RootLayout({
@@ -13,7 +14,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <LanguageProvider>{children}</LanguageProvider>
+      </body>
     </html>
   );
 }

@@ -1,0 +1,434 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ----------------------------------------------------
+// MULTI-TENANCY & USER MANAGEMENT
+// ----------------------------------------------------
+
+model User {
+  id                 String               @id @default(uuid())
+  email              String               @unique
+  passwordHash       String
+  fullName           String
+  avatarUrl          String?
+  globalRole         String               @default("STUDENT") // SUPER_ADMIN, ORG_ADMIN, LECTURER, REVIEWER, STUDENT
+  isActive           Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  memberships        OrganizationMember[]
+  createdAssessments Assessment[]         @relation("AssessmentCreator")
+  studentProfile     Student?
+  lecturerReviews    LecturerReview[]
+  appealReviews      AppealReview[]
+  auditLogs          AuditLog[]
+  createdQuestions   QuestionBankItem[]
+}
+
+model Organization {
+  id                    String                   @id @default(uuid())
+  name                  String
+  slug                  String                   @unique
+  logoUrl               String?
+  primaryColor          String?                  @default("#1e40af")
+  disagreementThreshold Float                    @default(1.0)
+  requireReview         Boolean                  @default(true)
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+
+  members               OrganizationMember[]
+  courses               Course[]
+  students              Student[]
+  assessments           Assessment[]
+  subscription          OrganizationSubscription?
+  auditLogs             AuditLog[]
+  usageRecords          UsageRecord[]
+  questionBank          QuestionBankItem[]
+}
+
+model OrganizationMember {
+  id             String       @id @default(uuid())
+  organizationId String
+  userId         String
+  orgRole        String       @default("LECTURER") // SUPER_ADMIN, ORG_ADMIN, LECTURER, REVIEWER, STUDENT
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+}
+
+// ----------------------------------------------------
+// SUBSCRIPTIONS & USAGE TRACKING
+// ----------------------------------------------------
+
+model SubscriptionPlan {
+  id                    String                   @id @default(uuid())
+  name                  String
+  code                  String                   @unique // FREE_TRIAL, INDIVIDUAL, PRO, CENTER, ENTERPRISE
+  maxUsers              Int                      @default(50)
+  monthlyGradingLimit   Int                      @default(500)
+  storageLimitMb        Int                      @default(1000)
+  analyticsEnabled      Boolean                  @default(true)
+  batchImportEnabled    Boolean                  @default(true)
+  customBrandingEnabled Boolean                  @default(false)
+  createdAt             DateTime                 @default(now())
+
+  subscriptions         OrganizationSubscription[]
+}
+
+model OrganizationSubscription {
+  id                 String           @id @default(uuid())
+  organizationId     String           @unique
+  planId             String
+  status             String           @default("ACTIVE")
+  currentPeriodStart DateTime         @default(now())
+  currentPeriodEnd   DateTime
+  usageCount         Int              @default(0)
+  createdAt          DateTime         @default(now())
+
+  organization       Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan               SubscriptionPlan @relation(fields: [planId], references: [id])
+}
+
+// ----------------------------------------------------
+// ACADEMIC & CLASS STRUCTURE
+// ----------------------------------------------------
+
+model Course {
+  id             String       @id @default(uuid())
+  organizationId String
+  code           String
+  title          String
+  description    String?
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  classGroups    ClassGroup[]
+  assessments    Assessment[]
+  enrollments    Enrollment[]
+}
+
+model ClassGroup {
+  id          String       @id @default(uuid())
+  courseId    String
+  name        String
+  classCode   String?      @unique // e.g. IELTS-WR-4A7F
+  examTarget  String?      @default("IELTS") // VSTEP, IELTS, TOEIC, GENERAL
+  targetScore String?      @default("6.5")
+  description String?
+  lecturerId  String?
+  createdAt   DateTime     @default(now())
+
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  students    Student[]
+}
+
+model Student {
+  id             String       @id @default(uuid())
+  organizationId String
+  userId         String?      @unique
+  studentIdCode  String
+  fullName       String
+  email          String
+  classGroupId   String?
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  classGroup     ClassGroup?  @relation(fields: [classGroupId], references: [id], onDelete: SetNull)
+  enrollments    Enrollment[]
+  submissions    Submission[]
+  appeals        Appeal[]
+
+  @@unique([organizationId, studentIdCode])
+}
+
+model Enrollment {
+  id        String   @id @default(uuid())
+  studentId String
+  courseId  String
+  createdAt DateTime @default(now())
+
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, courseId])
+}
+
+// ----------------------------------------------------
+// QUESTION BANK
+// ----------------------------------------------------
+
+model QuestionBankItem {
+  id             String       @id @default(uuid())
+  organizationId String
+  createdById    String
+  title          String
+  examType       String       @default("IELTS") // GENERAL, VSTEP, IELTS, TOEIC_WRITING
+  taskType       String       @default("TASK_2") // TASK_1, TASK_2, TASK_3, LETTER, ESSAY
+  prompt         String
+  instructions   String?
+  minWords       Int?         @default(150)
+  maxWords       Int?         @default(300)
+  timeLimit      Int?         @default(40) // Minutes
+  difficulty     String       @default("MEDIUM") // EASY, MEDIUM, HARD, ADVANCED
+  topic          String?      @default("General")
+  tags           String?      // JSON array string
+  isArchived     Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User         @relation(fields: [createdById], references: [id], onDelete: Cascade)
+}
+
+// ----------------------------------------------------
+// ASSESSMENTS & WRITING TASKS
+// ----------------------------------------------------
+
+model Assessment {
+  id                    String       @id @default(uuid())
+  organizationId        String
+  courseId              String?
+  title                 String
+  examType              String       @default("GENERAL") // GENERAL, VSTEP, IELTS, TOEIC_WRITING
+  taskType              String       @default("TASK_2")
+  difficulty            String       @default("MEDIUM")
+  topic                 String?
+  task                  String
+  instructions          String?
+  minWords              Int?
+  maxWords              Int?
+  timeLimit             Int?         // Minutes
+  allowResubmission     Boolean      @default(true)
+  rubricVersion         String       @default("writing-rubric-v2.0")
+  promptVersion         String       @default("writing-grader-v3.2")
+  status                String       @default("DRAFT") // DRAFT, ACTIVE, CLOSED, COMPLETED
+  gradingMode           String       @default("AI_PLUS_ONE_LECTURER")
+  disagreementThreshold Float        @default(1.0)
+  startTime             DateTime?
+  deadline              DateTime?
+  resultReleaseDate     DateTime?
+  createdById           String
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  course                Course?      @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  createdBy             User         @relation("AssessmentCreator", fields: [createdById], references: [id])
+  submissions           Submission[]
+}
+
+// ----------------------------------------------------
+// SUBMISSIONS & REWRITE ATTEMPTS
+// ----------------------------------------------------
+
+model Submission {
+  id              String              @id @default(uuid())
+  assessmentId    String
+  studentId       String
+  essayText       String
+  wordCount       Int
+  attemptNumber   Int                 @default(1)
+  status          String              @default("SUBMITTED")
+  submittedAt     DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  assessment      Assessment          @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  student         Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  versions        SubmissionVersion[]
+  gradingJobs     GradingJob[]
+  aiAssessments   AIAssessment[]
+  lecturerReviews LecturerReview[]
+  finalGrades     FinalGrade[]
+  appeals         Appeal[]
+}
+
+model SubmissionVersion {
+  id            String       @id @default(uuid())
+  submissionId  String
+  versionNumber Int
+  essayText     String
+  wordCount     Int
+  createdAt     DateTime     @default(now())
+
+  submission    Submission   @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  aiAssessments AIAssessment[]
+}
+
+model GradingJob {
+  id                 String     @id @default(uuid())
+  submissionId       String
+  gradingFingerprint String
+  status             String     @default("QUEUED") // QUEUED, PROCESSING, COMPLETED, FAILED, NEEDS_REVIEW
+  attemptCount       Int        @default(0)
+  errorMessage       String?
+  queuedAt           DateTime   @default(now())
+  startedAt          DateTime?
+  completedAt        DateTime?
+
+  submission         Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+}
+
+model AIAssessment {
+  id                     String             @id @default(uuid())
+  submissionId           String
+  submissionVersionId    String?
+  essayHash              String
+  gradingFingerprint     String
+
+  taskFulfillmentScore   Float
+  organizationScore      Float
+  vocabularyScore        Float
+  grammarScore           Float
+  total                  Float
+
+  taskFulfillmentData    String // JSON string
+  organizationData       String // JSON string
+  vocabularyData         String // JSON string
+  grammarData            String // JSON string
+
+  feedback               String
+  strengths              String // JSON array string
+  weaknesses             String // JSON array string
+  suggestionsForLecturer String // JSON array string
+  evidence               String // JSON array string
+
+  reviewRequired         Boolean            @default(false)
+  reviewReasons          String // JSON array string
+  assessmentConsistency  String?
+
+  primaryPass            String // JSON string
+  reviewerPass           String? // JSON string
+
+  model                  String
+  temperature            Float
+  promptVersion          String
+  rubricVersion          String
+  latencyMs              Int
+  tokenUsage             String? // JSON string
+  createdAt              DateTime           @default(now())
+
+  submission             Submission         @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  submissionVersion      SubmissionVersion? @relation(fields: [submissionVersionId], references: [id], onDelete: SetNull)
+  lecturerReviews        LecturerReview[]
+  finalGrades            FinalGrade[]
+  usageRecords           UsageRecord[]
+}
+
+// ----------------------------------------------------
+// LECTURER REVIEW & FINAL GRADES
+// ----------------------------------------------------
+
+model LecturerReview {
+  id                   String       @id @default(uuid())
+  submissionId         String
+  aiAssessmentId       String
+  reviewerId           String
+  status               String       @default("APPROVED") // APPROVED, MODIFIED, FLAGGED, REWRITE_REQUESTED
+
+  finalTaskFulfillment Float?
+  finalOrganization    Float?
+  finalVocabulary      Float?
+  finalGrammar         Float?
+  finalTotal           Float
+  scoreDifference      Float
+  comment              String?
+  createdAt            DateTime     @default(now())
+
+  submission           Submission   @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  aiAssessment         AIAssessment @relation(fields: [aiAssessmentId], references: [id], onDelete: Cascade)
+  reviewer             User         @relation(fields: [reviewerId], references: [id])
+  finalGrades          FinalGrade[]
+}
+
+model FinalGrade {
+  id               String          @id @default(uuid())
+  submissionId     String
+  aiAssessmentId   String
+  lecturerReviewId String?
+  finalTotal       Float
+  status           String          @default("RELEASED")
+  releasedAt       DateTime?
+  createdAt        DateTime        @default(now())
+
+  submission       Submission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  aiAssessment     AIAssessment    @relation(fields: [aiAssessmentId], references: [id], onDelete: Cascade)
+  lecturerReview   LecturerReview? @relation(fields: [lecturerReviewId], references: [id], onDelete: SetNull)
+}
+
+// ----------------------------------------------------
+// APPEALS & AUDIT
+// ----------------------------------------------------
+
+model Appeal {
+  id           String         @id @default(uuid())
+  submissionId String
+  studentId    String
+  reason       String
+  status       String         @default("REQUESTED")
+  createdAt    DateTime       @default(now())
+
+  submission   Submission     @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  student      Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  reviews      AppealReview[]
+}
+
+model AppealReview {
+  id            String   @id @default(uuid())
+  appealId      String
+  reviewerId    String
+  decision      String
+  newFinalTotal Float?
+  comment       String?
+  createdAt     DateTime @default(now())
+
+  appeal        Appeal   @relation(fields: [appealId], references: [id], onDelete: Cascade)
+  reviewer      User     @relation(fields: [reviewerId], references: [id])
+}
+
+model AuditLog {
+  id             String        @id @default(uuid())
+  organizationId String?
+  userId         String?
+  action         String
+  entityType     String
+  entityId       String
+  oldValue       String?
+  newValue       String?
+  ipAddress      String?
+  timestamp      DateTime      @default(now())
+
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model UsageRecord {
+  id               String        @id @default(uuid())
+  organizationId   String
+  aiAssessmentId   String?
+  promptTokens     Int           @default(0)
+  completionTokens Int           @default(0)
+  totalTokens      Int           @default(0)
+  estimatedCostUsd Float         @default(0)
+  latencyMs        Int           @default(0)
+  timestamp        DateTime      @default(now())
+
+  organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  aiAssessment     AIAssessment? @relation(fields: [aiAssessmentId], references: [id], onDelete: SetNull)
+}
+
+model SystemSetting {
+  key         String   @id
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+}

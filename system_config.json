@@ -1,0 +1,55 @@
+{
+  "bank": {
+    "bankName": "BVBank (Ngân hàng TMCP Bản Việt)",
+    "accountNumber": "9021859379985",
+    "accountHolder": "Truong Luu Quan",
+    "transferPrefix": "NAP",
+    "branch": "Chi nhánh Hồ Chí Minh"
+  },
+  "plans": [
+    {
+      "code": "TRIAL",
+      "nameVi": "DÙNG THỬ MIỄN PHÍ",
+      "nameEn": "FREE TRIAL",
+      "priceVnd": "0 VNĐ",
+      "priceNumber": 0,
+      "monthlyLimit": 5,
+      "descVi": "Dành cho giáo viên mới trải nghiệm AI",
+      "descEn": "For new teachers testing AI practice",
+      "popular": false
+    },
+    {
+      "code": "INDIVIDUAL",
+      "nameVi": "GIÁO VIÊN ĐỘC LẬP",
+      "nameEn": "INDIVIDUAL TEACHER",
+      "priceVnd": "690.000 VNĐ",
+      "priceNumber": 690000,
+      "monthlyLimit": 100,
+      "descVi": "Dành cho giáo viên dạy tự do",
+      "descEn": "For independent exam prep tutors",
+      "popular": false
+    },
+    {
+      "code": "PRO",
+      "nameVi": "GIÁO VIÊN PRO",
+      "nameEn": "TEACHER PRO",
+      "priceVnd": "1.890.000 VNĐ",
+      "priceNumber": 1890000,
+      "monthlyLimit": 2000,
+      "descVi": "Dành cho giáo viên mở nhiều lớp",
+      "descEn": "For teachers running multiple classes",
+      "popular": true
+    },
+    {
+      "code": "CENTER",
+      "nameVi": "TRUNG TÂM NGOẠI NGỮ",
+      "nameEn": "LANGUAGE CENTER",
+      "priceVnd": "4.690.000 VNĐ",
+      "priceNumber": 4690000,
+      "monthlyLimit": 10000,
+      "descVi": "Dành cho trung tâm & học viện",
+      "descEn": "For language centers & academies",
+      "popular": false
+    }
+  ]
+}
